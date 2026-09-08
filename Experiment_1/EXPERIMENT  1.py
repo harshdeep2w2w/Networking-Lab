@@ -1,4 +1,4 @@
-'''def caesar_encrypt(text, key):
+def caesar_encrypt(text, key):
     result = ""
 
     for char in text:
@@ -28,7 +28,7 @@ decrypted_text = caesar_decrypt(ciphertext, key)
 
 print("\nPlaintext:", plaintext)
 print("Ciphertext:", ciphertext)
-print("Decrypted Text:", decrypted_text)'''
+print("Decrypted Text:", decrypted_text)
 
 
 
