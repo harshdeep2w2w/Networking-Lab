@@ -3,27 +3,41 @@ import hmac
 import secrets
 import time
 
-SHARED_SECRET = b"network_secret_key"
+# Multiple users with separate secret keys
+users = {
+    "student1": b"student1_secret",
+    "student2": b"student2_secret",
+    "student3": b"student3_secret"
+}
+
 MAX_AGE_SECONDS = 5
 
 pending_challenges = {}
 used_nonces = set()
 
+# Authentication log
+authentication_log = []
 
+
+# Generate a random challenge
 def issue_challenge(username):
     nonce = secrets.token_hex(16)
-    pending_challenges[nonce] = (username, time.time())
+    pending_challenges[nonce] = username
     return nonce
 
 
+# Create HMAC response
 def create_response(username, nonce, timestamp=None):
+
     if timestamp is None:
         timestamp = int(time.time())
+
+    secret_key = users[username]
 
     message = f"{username}:{nonce}:{timestamp}".encode("utf-8")
 
     tag = hmac.new(
-        SHARED_SECRET,
+        secret_key,
         message,
         hashlib.sha256
     ).hexdigest()
@@ -31,70 +45,122 @@ def create_response(username, nonce, timestamp=None):
     return timestamp, tag
 
 
+# Verify response
 def verify_response(username, nonce, timestamp, received_tag):
 
+    # Check replay attack
     if nonce in used_nonces:
+        authentication_log.append(
+            f"{username} -> Replay detected"
+        )
         return False, "Replay detected: nonce already used"
 
+    # Check challenge
     challenge = pending_challenges.get(nonce)
 
-    if challenge is None or challenge[0] != username:
+    if challenge is None or challenge != username:
+        authentication_log.append(
+            f"{username} -> Unknown challenge"
+        )
         return False, "Unknown challenge"
 
+    # Check timestamp
     if abs(time.time() - timestamp) > MAX_AGE_SECONDS:
+
         pending_challenges.pop(nonce, None)
         used_nonces.add(nonce)
+
+        authentication_log.append(
+            f"{username} -> Expired response"
+        )
+
         return False, "Expired response"
+
+    # Generate expected HMAC
+    secret_key = users[username]
 
     message = f"{username}:{nonce}:{timestamp}".encode("utf-8")
 
     expected = hmac.new(
-        SHARED_SECRET,
+        secret_key,
         message,
         hashlib.sha256
     ).hexdigest()
 
-    valid = hmac.compare_digest(received_tag, expected)
+    # Compare HMAC values
+    valid = hmac.compare_digest(
+        received_tag,
+        expected
+    )
 
+    # Challenge can only be used once
     pending_challenges.pop(nonce, None)
     used_nonces.add(nonce)
 
-    return valid, (
-        "Authentication successful"
-        if valid
-        else "Authentication failed"
-    )
+    if valid:
+        authentication_log.append(
+            f"{username} -> Authentication successful"
+        )
+        return True, "Authentication successful"
+
+    else:
+        authentication_log.append(
+            f"{username} -> Authentication failed"
+        )
+        return False, "Authentication failed"
 
 
-# Normal authentication
-username = "student1"
+# Main program
+print("===== CHALLENGE-RESPONSE AUTHENTICATION =====")
 
-nonce = issue_challenge(username)
-timestamp, tag = create_response(username, nonce)
-
-captured = (username, nonce, timestamp, tag)
-
-print("First use:", verify_response(*captured))
-
-# Replay attack
-print("Replay:", verify_response(*captured))
-
-# Delayed response
-old_nonce = issue_challenge(username)
-old_time = int(time.time()) - 10
-
-old_time, old_tag = create_response(
-    username,
-    old_nonce,
-    old_time
+username = input(
+    "Enter username (student1/student2/student3): "
 )
 
-print(
-    "Delayed:",
-    verify_response(
+if username not in users:
+    print("Invalid username")
+else:
+
+    nonce = issue_challenge(username)
+
+    print("\nServer generated Nonce:", nonce)
+
+    timestamp, response = create_response(
         username,
-        old_nonce,
-        old_time,
-        old_tag
+        nonce
     )
-)
+
+    print("Client Response:", response)
+
+    result, message = verify_response(
+        username,
+        nonce,
+        timestamp,
+        response
+    )
+
+    print("\nAuthentication Result:", message)
+
+
+# Replay attack test
+print("\n===== REPLAY ATTACK TEST =====")
+
+if username in users:
+
+    print("Replaying the same response...")
+
+    result, message = verify_response(
+        username,
+        nonce,
+        timestamp,
+        response
+    )
+
+    print("Replay Result:", message)
+
+
+# Authentication logs
+print("\n===== AUTHENTICATION LOG =====")
+
+for log in authentication_log:
+    print(log)
